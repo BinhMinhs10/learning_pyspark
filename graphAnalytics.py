@@ -5,11 +5,14 @@ import pyspark
 from graphframes import GraphFrame
 from pyspark.sql.functions import desc
 
+
 spark = SparkSession \
     .builder \
     .appName("Python Spark SQL basic example")\
     .getOrCreate()
+
 spark.sparkContext.setLogLevel("WARN")
+
 
 bikeStations = spark.read.option("header", "true") \
     .csv("data/bike-data/201508_station_data.csv")
@@ -48,3 +51,4 @@ stationGraph.edges \
 # motif finding
 
 print("\nDONE======================\n")
+
