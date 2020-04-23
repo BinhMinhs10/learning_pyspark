@@ -1,9 +1,18 @@
-#  $SPARK_HOME/bin/spark-submit --packages graphframes:graphframes:0.3.0-spark2.0-s_2.11 graphAnalytics.py
+#  $SPARK_HOME/bin/spark-submit --packages graphframes:graphframes:0.7.0-spark2.4-s_2.11 graphAnalytics.py
+
+# import os
+#
+# os.environ["PYSPARK_SUBMIT_ARGS"] = (
+#         "--packages graphframes:graphframes:0.7.0-spark2.4-s_2.11 pyspark-shell"
+# )
+# os.environ["PYSPARK_PYTHON"] = "/usr/bin/python3"
+# os.environ["PYSPARK_DRIVER_PYTHON"] = "/usr/bin/python3"
 
 from pyspark.sql import SparkSession
 import pyspark
 from graphframes import GraphFrame
 from pyspark.sql.functions import desc
+
 
 
 spark = SparkSession \
@@ -41,7 +50,6 @@ print("\nTotal Number of Trips in Original Data: "+ str(tripData.count()))
 stationGraph.edges \
     .where("src = 'Townsend at 7th' OR dst = 'Townsend at 7th'") \
     .groupBy("src", "dst").count() \
-    .orderby(desc("count")) \
     .show(10)
 
 # # sub graph
