@@ -1,19 +1,14 @@
-#  $SPARK_HOME/bin/spark-submit --packages graphframes:graphframes:0.7.0-spark2.4-s_2.11 graphAnalytics.py
+#  $SPARK_HOME/bin/spark-submit --packages graphframes:graphframes:0.7.0-spark2.4-s_2.11 graphanalytics.py
 
 # import os
-#
 # os.environ["PYSPARK_SUBMIT_ARGS"] = (
 #         "--packages graphframes:graphframes:0.7.0-spark2.4-s_2.11 pyspark-shell"
 # )
-# os.environ["PYSPARK_PYTHON"] = "/usr/bin/python3"
-# os.environ["PYSPARK_DRIVER_PYTHON"] = "/usr/bin/python3"
 
 from pyspark.sql import SparkSession
 import pyspark
 from graphframes import GraphFrame
 from pyspark.sql.functions import desc
-
-
 
 spark = SparkSession \
     .builder \
@@ -21,7 +16,7 @@ spark = SparkSession \
     .getOrCreate()
 
 spark.sparkContext.setLogLevel("WARN")
-
+spark.sparkContext.setCheckpointDir("~/tmp/checkpoints")
 
 bikeStations = spark.read.option("header", "true") \
     .csv("data/bike-data/201508_station_data.csv")
@@ -56,7 +51,21 @@ stationGraph.edges \
 # townAnd7thEdges = stationGraph.edges.where("src = 'Townsend at 7th' OR dst = 'Townsend at 7th'")
 # subgraph = GraphFrame(stationGraph.vertices, townAnd7thEdges)
 
-# motif finding
+# # motif finding "triangle" pattern
+# print("\nfind motif----------------")
+# motifs = stationGraph.find("(a)-[ab]->(b); (b)-[bc]->(c); (c)-[ca]->(a)")
+# motifs.show()
+
+# In-Degree and Out-Degree Metrics
+inDeg = stationGraph.inDegrees
+inDeg.orderBy(desc("inDegree")).show(5, False)
+
+# Connected component
+minGraph = GraphFrame(stationVertices, tripEdges.sample(False, 0.1))
+cc = minGraph.connectedComponents()
+cc.where("component != 0").show()
+
+
 
 print("\nDONE======================\n")
 

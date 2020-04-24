@@ -57,15 +57,6 @@ motifs.show()
 # More complex queries
 motifs.filter("b.age > 30").show()
 
-# # state along
-# chain4 = g.find("(a)-[ab]->(b); (b)-[bc]->(c); (c)-[cd]->(d)")
-# sumFriends =\
-#     lambda cnt, relationship: when(relationship == "friend", cnt+1).otherwise(cnt)
-#
-# condition =\
-#     reduce(lambda cnt,e: sumFriends(cnt, col(e).relationship), ["ab", "bc", "cd"], lit(0))
-# chainWith2Friends2 = chain4.where(condition >=2)
-# chainWith2Friends2.show()
 
 print("\ngenerate subgraph --- ")
 g1 = g.filterVertices("age > 30")\
@@ -79,6 +70,17 @@ print("\n BFS")
 paths = g.bfs("name = 'Esther'", "age < 32",
               edgeFilter="relationship != 'friend'", maxPathLength=3) \
         .show()
+
+# In-Degree and Out-Degree Metrics
+print("\n Degree--------------")
+inDeg = g.inDegrees
+inDeg.orderBy(desc("inDegree"))
+outDeg = g.outDegrees
+outDeg.orderBy(desc("outDegree"))
+degreeRatio = inDeg.join(outDeg, "id") \
+    .selectExpr("*", "double(inDegree)/ double(outDegree) as degreeRatio") \
+    .orderBy(desc("degreeRatio")) \
+    .show(10, False)
 
 
 # print("\n strong connected component")
