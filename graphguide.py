@@ -8,36 +8,38 @@ from pyspark.sql.functions import desc, lit, col, when
 from pyspark.sql.types import IntegerType
 
 
-
 # # https://graphframes.github.io/graphframes/docs/_site/quick-start.html
-spark = SparkSession \
-    .builder \
-    .appName("Python Spark graph example")\
-    .getOrCreate()
+spark = SparkSession.builder.appName("Python Spark graph example").getOrCreate()
 sc = spark.sparkContext
 sc.setLogLevel("WARN")
 sqlContext = SQLContext(sc)
 
-v = sqlContext.createDataFrame([
-    ("a", "Alice", 34),
-    ("b", "Bob", 36),
-    ("c", "Charlie", 30),
-    ("d", "David", 29),
-    ("e", "Esther", 32),
-    ("f", "Fanny", 36),
-    ("g", "Gabby", 60)
-], ["id", "name", "age"])
+v = sqlContext.createDataFrame(
+    [
+        ("a", "Alice", 34),
+        ("b", "Bob", 36),
+        ("c", "Charlie", 30),
+        ("d", "David", 29),
+        ("e", "Esther", 32),
+        ("f", "Fanny", 36),
+        ("g", "Gabby", 60),
+    ],
+    ["id", "name", "age"],
+)
 # Edge Dataframe
-e = sqlContext.createDataFrame([
-  ("a", "b", "friend"),
-  ("b", "c", "follow"),
-  ("c", "b", "follow"),
-  ("f", "c", "follow"),
-  ("e", "f", "follow"),
-  ("e", "d", "friend"),
-  ("d", "a", "friend"),
-  ("a", "e", "friend")
-], ["src", "dst", "relationship"])
+e = sqlContext.createDataFrame(
+    [
+        ("a", "b", "friend"),
+        ("b", "c", "follow"),
+        ("c", "b", "follow"),
+        ("f", "c", "follow"),
+        ("e", "f", "follow"),
+        ("e", "d", "friend"),
+        ("d", "a", "friend"),
+        ("a", "e", "friend"),
+    ],
+    ["src", "dst", "relationship"],
+)
 # create graph
 g = GraphFrame(v, e)
 g.vertices.show()
@@ -59,17 +61,22 @@ motifs.filter("b.age > 30").show()
 
 
 print("\ngenerate subgraph --- ")
-g1 = g.filterVertices("age > 30")\
-    .filterEdges("relationship = 'friend'") \
+g1 = (
+    g.filterVertices("age > 30")
+    .filterEdges("relationship = 'friend'")
     .dropIsolatedVertices()
+)
 g1.vertices.show()
 g1.edges.show()
 
 # Breadth-first search (BFS)
 print("\n BFS")
-paths = g.bfs("name = 'Esther'", "age < 32",
-              edgeFilter="relationship != 'friend'", maxPathLength=3) \
-        .show()
+paths = g.bfs(
+    "name = 'Esther'",
+    "age < 32",
+    edgeFilter="relationship != 'friend'",
+    maxPathLength=3,
+).show()
 
 # In-Degree and Out-Degree Metrics
 print("\n Degree--------------")
@@ -77,10 +84,12 @@ inDeg = g.inDegrees
 inDeg.orderBy(desc("inDegree"))
 outDeg = g.outDegrees
 outDeg.orderBy(desc("outDegree"))
-degreeRatio = inDeg.join(outDeg, "id") \
-    .selectExpr("*", "double(inDegree)/ double(outDegree) as degreeRatio") \
-    .orderBy(desc("degreeRatio")) \
+degreeRatio = (
+    inDeg.join(outDeg, "id")
+    .selectExpr("*", "double(inDegree)/ double(outDegree) as degreeRatio")
+    .orderBy(desc("degreeRatio"))
     .show(10, False)
+)
 
 
 # print("\n strong connected component")
@@ -115,7 +124,6 @@ results.select("id", "distances").show()
 msgToSrc = AM.dst["age"]
 msgToDst = AM.src["age"]
 agg = g.aggregateMessages(
-    sum(AM.msg).alias("summedAges"),
-    sendToSrc=msgToSrc,
-    sentToDst=msgToDst)
+    sum(AM.msg).alias("summedAges"), sendToSrc=msgToSrc, sentToDst=msgToDst
+)
 agg.show()
