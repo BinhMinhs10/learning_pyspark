@@ -1,6 +1,7 @@
 from pyspark import SQLContext
 from pyspark.sql import SparkSession, types
 from pyspark.sql import functions as F
+from pyspark.sql.functions import monotonically_increasing_id
 
 from graphframes import GraphFrame
 from graphframes.lib import AggregateMessages as AM
@@ -161,14 +162,15 @@ def min_rating_col(v, e, max_iterations=4):
 
 def convert2undirect(g):
 
-    mirror = g.edges.withColumn('dst_temp', F.col('dst'))\
-        .withColumnRenamed("dst", "src") \
-        .withColumnRenamed("src", "dst_temp") \
-        .drop("dst_temp")
+    # mirror = g.edges.withColumn('src_temp', F.col('src')) \
 
+    mirror = g.edges.select(F.col("dst").alias("src"), F.col("src").alias("dst"))\
+        .withColumn("_id", monotonically_increasing_id())
 
+    cached_mirror = AM.getCachedDataFrame(mirror.join(
+        g.edges.drop("src").drop("dst")
+        .withColumn("_id", monotonically_increasing_id()), "_id", "outer").drop("_id"))
 
-    cached_mirror = AM.getCachedDataFrame(mirror)
     g2 = GraphFrame(g.vertices, cached_mirror)
     g2.edges.show()
     cached_edges = AM.getCachedDataFrame(g.edges.union(g2.edges))
