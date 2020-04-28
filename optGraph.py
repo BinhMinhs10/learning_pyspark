@@ -163,7 +163,6 @@ def min_rating_col(v, e, max_iterations=4):
 def convert2undirect(g):
 
     # mirror = g.edges.withColumn('src_temp', F.col('src')) \
-
     mirror = g.edges.select(F.col("dst").alias("src"), F.col("src").alias("dst"))\
         .withColumn("_id", monotonically_increasing_id())
 
@@ -172,13 +171,25 @@ def convert2undirect(g):
         .withColumn("_id", monotonically_increasing_id()), "_id", "outer").drop("_id"))
 
     g2 = GraphFrame(g.vertices, cached_mirror)
-    g2.edges.show()
     cached_edges = AM.getCachedDataFrame(g.edges.union(g2.edges))
 
     g = GraphFrame(g.vertices, cached_edges)
     return g
 
 def dijsktra(graph, initial, end, name_col_weight="score", directed=True):
+    """
+
+    :param graph: GraphFrames
+    :param initial: id of node start
+    :param end: id of node end
+    :param name_col_weight:
+    :param directed: boolean value
+    :return: path shortest path
+    if return -1 mean Route Not Possible
+    """
+
+    # check root and end node exit in shortest path
+
     shortest_paths = {str(initial): (None, 0)}
     current_node = str(initial)
     visited = set()
@@ -187,22 +198,35 @@ def dijsktra(graph, initial, end, name_col_weight="score", directed=True):
         visited.add(current_node)
 
         if directed:
-            # get all out node
-            destinations = graph.edges.filter("src = '" + current_node + "'").collect()
+            # get all out node not in visited node
+            destinations = graph.edges\
+                .filter("src = '" + current_node + "'")\
+                .filter(~graph.edges.dst.isin(visited))\
+                .collect()
         else:
             # undirected graph so get all connect
             out_destinations = graph.edges\
-                .filter("src = '" + current_node + "'").collect()
+                .filter("src = '" + current_node + "'") \
+                .filter(~graph.edges.dst.isin(visited)) \
+                .collect()
             in_destinations = graph.edges \
-                .filter("dst = '" + current_node + "'").collect()
+                .filter("dst = '" + current_node + "'") \
+                .filter(~graph.edges.src.isin(visited)) \
+                .withColumn("col_A_", F.col("dst")) \
+                .withColumn("dst", F.col("src")) \
+                .withColumn("src", F.col("col_A_")) \
+                .drop("col_A_") \
+                .collect()
             destinations = out_destinations + in_destinations
-
-        print(destinations)
 
         weight_to_current_node = shortest_paths[current_node][1]
 
         for next_node in destinations:
-            weight = next_node[name_col_weight] + weight_to_current_node
+            try:
+                weight = next_node[name_col_weight] + weight_to_current_node
+            except ValueError:
+                return "Sorry, name_col_weight not exist in edges attribute"
+
             if next_node not in shortest_paths:
                 shortest_paths[next_node["dst"]] = (current_node, weight)
             else:
@@ -212,19 +236,19 @@ def dijsktra(graph, initial, end, name_col_weight="score", directed=True):
 
         next_destinations = {node: shortest_paths[node] for node in shortest_paths if node not in visited}
         if not next_destinations:
-            return "Route Not Possible"
+            return -1
         # next node is destination with lowest weight
         current_node = min(next_destinations, key=lambda k: next_destinations[k][1])
 
     path = []
     while current_node is not None:
+
         path.append(current_node)
         next_node = shortest_paths[current_node][0]
         current_node = next_node
     # revert path
     path = path[::-1]
     return path
-
 
 
 def main():
@@ -239,10 +263,14 @@ def main():
     v, e = Graphs(sql_context).generate_example_dijstra()
     # Dijkstra Shortest Paths distance algorithm
     g = GraphFrame(v, e)
-    g.edges.show()
-    # print(dijsktra(g, "a", "z", directed=True))
-    temp = convert2undirect(g)
-    temp.edges.show()
+
+    print(dijsktra(g, "a", "g", directed=True))
+    print(dijsktra(g, "a", "e", directed=False))
+
+    # g_undirected = convert2undirect(g)
+    # g_undirected.edges.show()
+    # print(dijsktra(g_undirected, "a", "e", directed=False))
+
 
 if __name__ == "__main__":
     main()

@@ -1,14 +1,10 @@
 #  $SPARK_HOME/bin/spark-submit --packages graphframes:graphframes:0.7.0-spark2.4-s_2.11 graphanalytics.py
 
-# import os
-# os.environ["PYSPARK_SUBMIT_ARGS"] = (
-#         "--packages graphframes:graphframes:0.7.0-spark2.4-s_2.11 pyspark-shell"
-# )
-
 from pyspark.sql import SparkSession
 import pyspark
 from graphframes import GraphFrame
 from pyspark.sql.functions import desc
+
 
 spark = SparkSession.builder.appName("Python Spark SQL basic example").getOrCreate()
 
@@ -59,6 +55,7 @@ inDeg = stationGraph.inDegrees
 inDeg.orderBy(desc("inDegree")).show(5, False)
 
 # Connected component
+print("\nCalculate connected component---------")
 minGraph = GraphFrame(stationVertices, tripEdges.sample(False, 0.1))
 cc = minGraph.connectedComponents()
 cc.where("component != 0").show()
