@@ -107,7 +107,7 @@ print("\n Page rank")
 # results4 = g.parallelPersonalizedPageRank(resetProbability=0.15, sourceIds=["a", "b", "c", "d"], maxIter=10)\
 
 
-print("\n shortest paths")
+print("\n shortest paths from each node to landmards node")
 results = g.shortestPaths(landmarks=["a", "d"])
 results.select("id", "distances").show()
 

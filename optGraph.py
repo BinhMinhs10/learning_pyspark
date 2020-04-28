@@ -1,9 +1,12 @@
 from pyspark import SQLContext
 from pyspark.sql import SparkSession, types
 from pyspark.sql import functions as F
+from pyspark.sql.types import *
 from pyspark.sql.functions import monotonically_increasing_id
+from pyspark.sql import Row
 
-from graphframes import GraphFrame
+
+from graphframes import *
 from graphframes.lib import AggregateMessages as AM
 
 
@@ -105,6 +108,35 @@ class Graphs(object):
                 ("e", "z", 5)
             ],
             ["src", "dst", "score"],
+        )
+
+        # Create a GraphFrame
+        return v, e
+
+    def generate_graph_betweeness(self):
+        # Vertex DataFrame
+        v = self._sqlContext.createDataFrame(
+            [
+                ("a", "Alice", 34),
+                ("b", "Bridget", 36),
+                ("c", "Charles", 30),
+                ("d", "Doug", 29),
+                ("e", "Eric", 32),
+            ],
+            ["id", "name", "age"],
+        )
+
+        # Edge DataFrame
+        e = self._sqlContext.createDataFrame(
+            [
+                ("a", "b", 4, "manager"),
+                ("a", "c", 12, "manager"),
+                ("a", "d", 6, "manager"),
+                ("b", "d", 4, "manager"),
+                ("c", "d", 12, "manager"),
+                ("d", "e", 3, "manager"),
+            ],
+            ["src", "dst", "weight", "relationship"],
         )
 
         # Create a GraphFrame
@@ -250,6 +282,100 @@ def dijsktra(graph, initial, end, name_col_weight="score", directed=True):
     path = path[::-1]
     return path
 
+def shortest_path(sql_context, g, origin, destination, column_name="cost", directed=True, weight=True):
+    """
+
+    :param sql_context:
+    :param g:
+    :param origin:
+    :param destination:
+    :param column_name:
+    :param directed:
+    :param weight:
+    :return: all path shortest from origin to destination
+    """
+    if g.vertices.filter(g.vertices.id == destination).count() ==0:
+        return sql_context.createDataFrame(sql_context.emptyRDD(), g.vertices.schema) \
+                .withColumn("path", F.array())
+
+    add_path_udf = F.udf(lambda path, id: path + [id], ArrayType(StringType()))
+    add_other_path_udf = F.udf(lambda path1, path2: [path1] + [path2], ArrayType(StringType()))
+    
+    vertices = g.vertices.withColumn("visited", F.lit(False))\
+        .withColumn("distance", F.when(g.vertices['id'] == origin, 0).otherwise(float("inf"))) \
+        .withColumn("path", F.array())
+    cached_vertices = AM.getCachedDataFrame(vertices)
+    g2 = GraphFrame(cached_vertices, g.edges)
+    while g2.vertices.filter('visited == False').first():
+        current_node_id = g2.vertices.filter('visited == False')\
+            .sort("distance").first().id
+
+        if weight:
+            msg_distance = AM.src['distance'] + AM.edge[column_name]
+        else:
+            msg_distance = AM.src['distance'] + 1
+
+        msg_path = add_path_udf(AM.src["path"], AM.src["id"])
+        msg_for_dst = F.when(AM.src["id"] == current_node_id,
+                             F.struct(msg_distance, msg_path))
+        if directed:
+            new_distances = g2.aggregateMessages(F.min(AM.msg).alias("aggMess"),
+                                                 sendToDst=msg_for_dst
+                                                 )
+        else:
+            if weight:
+                msg_distance = AM.dst['distance'] + AM.edge[column_name]
+            else:
+                msg_distance = AM.dst['distance'] + 1
+
+            msg_path = add_path_udf(AM.dst["path"], AM.dst["id"])
+            msg_for_src = F.when(AM.dst["id"] == current_node_id,
+                                 F.struct(msg_distance, msg_path))
+            new_distances = g2.aggregateMessages(F.min(AM.msg).alias("aggMess"),
+                                                 sendToDst=msg_for_dst,
+                                                 sendToSrc=msg_for_src)
+        new_visited_col = F.when(
+            g2.vertices.visited | (g2.vertices.id == current_node_id),
+            True
+        ).otherwise(False)
+
+        new_distances_col = \
+            F.when(
+                new_distances["aggMess"].isNotNull() & (new_distances.aggMess["col1"] < g2.vertices.distance),
+                                   new_distances.aggMess["col1"])\
+            .otherwise(g2.vertices.distance)
+
+        new_path_col = \
+            F.when(
+                new_distances["aggMess"].isNotNull and (new_distances.aggMess["col1"] < g2.vertices.distance),
+                              new_distances.aggMess["col2"]) \
+            .when(
+                new_distances["aggMess"].isNotNull() & (new_distances.aggMess["col1"] == g2.vertices.distance),
+                add_other_path_udf(g2.vertices.path, new_distances.aggMess["col2"])) \
+            .otherwise(g2.vertices.path)
+        new_vertices = g2.vertices.join(new_distances, on="id", how="left_outer")\
+            .drop(new_distances["id"])\
+            .withColumn("visited", new_visited_col)\
+            .withColumn("newDistance", new_distances_col)\
+            .withColumn("newPath", new_path_col)\
+            .drop("aggMess", "distance", "path")\
+            .withColumnRenamed("newDistance", "distance")\
+            .withColumnRenamed("newPath", "path")
+
+        cached_new_vertices = AM.getCachedDataFrame(new_vertices)
+        g2 = GraphFrame(cached_new_vertices, g2.edges)
+        if g2.vertices.filter(g2.vertices.id == destination).first().visited:
+            return g2.vertices.filter(g2.vertices.id == destination)\
+                .withColumn("newPath", add_path_udf("path", "id"))\
+                .drop("visited", "path")\
+                .withColumnRenamed("newPath", "path")
+    return sql_context.createDataFrame(sql_context.emptyRDD(), g.vertices.schema)\
+        .withColumn("path", F.array())
+
+
+# def shortest_path_unweight(sql_context, g, origin, destination, directed=True):
+
+
 
 def main():
     spark = SparkSession.builder.getOrCreate()
@@ -264,12 +390,23 @@ def main():
     # Dijkstra Shortest Paths distance algorithm
     g = GraphFrame(v, e)
 
-    print(dijsktra(g, "a", "g", directed=True))
-    print(dijsktra(g, "a", "e", directed=False))
+    print(dijsktra(g, "a", "z", directed=True))
+    print(dijsktra(g, "a", "z", directed=False))
 
     # g_undirected = convert2undirect(g)
-    # g_undirected.edges.show()
     # print(dijsktra(g_undirected, "a", "e", directed=False))
+
+    #
+    result = shortest_path(sql_context, g, "a", "z", column_name="score", directed=True, weight=False)
+    for row in result.collect():
+        print(row.path)
+
+    def flat_path(paths):
+        for path in paths:
+           print(type(path))
+
+    paths = ['[a, c, e]', '[[a, c], [a, b], d]', 'z']
+    flat_path(paths)
 
 
 if __name__ == "__main__":
