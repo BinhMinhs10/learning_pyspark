@@ -282,6 +282,7 @@ def dijsktra(graph, initial, end, name_col_weight="score", directed=True):
     path = path[::-1]
     return path
 
+
 def shortest_path(sql_context, g, origin, destination, column_name="cost", directed=True, weight=True):
     """
 
@@ -292,14 +293,24 @@ def shortest_path(sql_context, g, origin, destination, column_name="cost", direc
     :param column_name:
     :param directed:
     :param weight:
-    :return: all path shortest from origin to destination
+    :return: all path shortest from origin to destination if distance==float("inf") them cann't reach node target
     """
+
     if g.vertices.filter(g.vertices.id == destination).count() ==0:
         return sql_context.createDataFrame(sql_context.emptyRDD(), g.vertices.schema) \
                 .withColumn("path", F.array())
 
-    add_path_udf = F.udf(lambda path, id: path + [id], ArrayType(StringType()))
-    add_other_path_udf = F.udf(lambda path1, path2: [path1] + [path2], ArrayType(StringType()))
+    def add_path(paths, id):
+        return paths + [id]
+
+    def add_other_path(path1, path2):
+
+        return [path1] + [path2]
+
+    add_path_udf = F.udf(lambda paths, id: add_path(paths, id),
+                         ArrayType(StringType()) )
+    add_other_path_udf = F.udf(lambda path1, path2: add_other_path(path1, path2),
+                               ArrayType(StringType()) )
     
     vertices = g.vertices.withColumn("visited", F.lit(False))\
         .withColumn("distance", F.when(g.vertices['id'] == origin, 0).otherwise(float("inf"))) \
@@ -347,11 +358,13 @@ def shortest_path(sql_context, g, origin, destination, column_name="cost", direc
 
         new_path_col = \
             F.when(
-                new_distances["aggMess"].isNotNull and (new_distances.aggMess["col1"] < g2.vertices.distance),
-                              new_distances.aggMess["col2"]) \
+                new_distances["aggMess"].isNotNull() & (new_distances.aggMess["col1"] < g2.vertices.distance),
+                new_distances.aggMess["col2"]
+            ) \
             .when(
                 new_distances["aggMess"].isNotNull() & (new_distances.aggMess["col1"] == g2.vertices.distance),
-                add_other_path_udf(g2.vertices.path, new_distances.aggMess["col2"])) \
+                add_other_path_udf(g2.vertices.path, new_distances.aggMess["col2"])
+            ) \
             .otherwise(g2.vertices.path)
         new_vertices = g2.vertices.join(new_distances, on="id", how="left_outer")\
             .drop(new_distances["id"])\
@@ -373,7 +386,38 @@ def shortest_path(sql_context, g, origin, destination, column_name="cost", direc
         .withColumn("path", F.array())
 
 
-# def shortest_path_unweight(sql_context, g, origin, destination, directed=True):
+def flat_paths(paths):
+    def convert_type(paths):
+        list_path = []
+        for path in paths:
+            res = path.replace("[", "[\"") \
+                .replace("]", "\"]") \
+                .replace(", ", "\", \"") \
+                .replace("]\",", "],") \
+                .replace("\"[", "[")
+            if len(res) != 1:
+                res = eval(res)
+            list_path.append(res)
+        return list_path
+
+    def flat(x):
+        if not any(isinstance(t, list) == True for t in x):
+            return x
+        xx = []
+        for item in x:
+            if isinstance(item, str):
+                for j in range(len(xx)):
+                    xx[j].append(item)
+            else:
+                item_new = flat(item)
+                if any(isinstance(t, list) == True for t in item_new):
+                    xx.extend(item_new)
+                else:
+                    xx.append(item_new)
+        return xx
+
+    return flat(convert_type(paths))
+
 
 
 
@@ -390,23 +434,19 @@ def main():
     # Dijkstra Shortest Paths distance algorithm
     g = GraphFrame(v, e)
 
-    print(dijsktra(g, "a", "z", directed=True))
-    print(dijsktra(g, "a", "z", directed=False))
+    # print(dijsktra(g, "a", "z", directed=True))
+    # print(dijsktra(g, "a", "z", directed=False))
 
     # g_undirected = convert2undirect(g)
     # print(dijsktra(g_undirected, "a", "e", directed=False))
 
-    #
+
     result = shortest_path(sql_context, g, "a", "z", column_name="score", directed=True, weight=False)
     for row in result.collect():
-        print(row.path)
+        paths = flat_paths(result.collect()[0].path)
+        print(paths)
 
-    def flat_path(paths):
-        for path in paths:
-           print(type(path))
 
-    paths = ['[a, c, e]', '[[a, c], [a, b], d]', 'z']
-    flat_path(paths)
 
 
 if __name__ == "__main__":
