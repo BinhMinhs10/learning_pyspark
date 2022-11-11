@@ -3,4 +3,4 @@ mypy==0.761
 pytest==5.3.5
 qcore==0.5.1
 graphframes==0.6.0
-pyspark==2.4.5
+pyspark==3.2.2
